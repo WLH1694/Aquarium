@@ -16,11 +16,12 @@ class Vector {
       return this;
     }
 
-    mult(n) {
-      this.x = n;
-      this.y= n;
-      return this;
-    }
+  mult(n) {
+  this.x *= n;
+  this.y *= n;
+  return this;
+}
+
 
     div(n) {
       if (n !== 0) {

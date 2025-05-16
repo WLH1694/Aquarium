@@ -5,6 +5,7 @@ let greenFishSlider, yellowFishSlider, applyButton;
 
 function setup() {
   createCanvas(800, 600);
+
   createP("Antal grønne fisk (1–100):");
   greenFishSlider = createSlider(1, 100, 10, 1);
 
@@ -20,6 +21,7 @@ function setup() {
 function draw() {
   background(50, 150, 200);
 
+  // Vis mad
   for (let food of foodList) food.show();
   for (let food of redFoodList) food.show();
 
@@ -28,64 +30,79 @@ function draw() {
     if (keyIsDown(50)) redFoodList.push(new RedFood(mouseX, mouseY));
   }
 
+  // Fisk logik
   for (let fish of fishList) {
-    fish.move(foodList, redFoodList, fishList);
+    fish.move(foodList, redFoodList);
     fish.show();
   }
 
+  // Fjern spist mad
   foodList = foodList.filter(f => !f.eaten);
   redFoodList = redFoodList.filter(f => !f.eaten);
 }
 
 function applyFishCount() {
   fishList = [];
-  for (let i = 0; i < greenFishSlider.value(); i++) fishList.push(new FishTypeA(random(width), random(height)));
-  for (let i = 0; i < yellowFishSlider.value(); i++) fishList.push(new FishTypeB(random(width), random(height)));
+  for (let i = 0; i < greenFishSlider.value(); i++) {
+    fishList.push(new FishTypeA(random(width), random(height)));
+  }
+  for (let i = 0; i < yellowFishSlider.value(); i++) {
+    fishList.push(new FishTypeB(random(width), random(height)));
+  }
 }
 
+// Hjælpefunktion til glidende vinkler
+function lerpAngle(a, b, t) {
+  let diff = b - a;
+  while (diff > PI) diff -= TWO_PI;
+  while (diff < -PI) diff += TWO_PI;
+  return a + diff * t;
+}
+
+// Base klasse
 class Fish {
   constructor(x, y) {
-    this.pos = new Vector(x, y);
+    this.x = x;
+    this.y = y;
     this.size = 15;
-    this.speed = 1.5;
+    this.angle = random(TWO_PI);
+    this.wanderTimer = 0;
   }
 
-  avoidOtherFish(fishList) {
-    let steer = new Vector(0, 0);
-    let count = 0;
+  // Border-funktion: drej blidt væk fra kanten, hvis du nærmer dig
+  border(margin = 50, turnAngle = 0.15) {
+    if (this.x < margin) this.angle = lerpAngle(this.angle, 0, turnAngle);
+    else if (this.x > width - margin) this.angle = lerpAngle(this.angle, PI, turnAngle);
 
-    for (let other of fishList) {
-      if (other !== this) {
-        let d = Vector.dist(this.pos, other.pos);
-        if (d < 30) {
-          let diff = Vector.sub(this.pos, other.pos);
-          diff.mult(5/d)
-          steer.add(diff);
-          count++;
-        }
-      }
+    if (this.y < margin) this.angle = lerpAngle(this.angle, HALF_PI, turnAngle);
+    else if (this.y > height - margin) this.angle = lerpAngle(this.angle, -HALF_PI, turnAngle);
+  }
+
+  // Bevægelse når der ikke er mad (hurtigere random svømning)
+  randomSwim(baseSpeed = 0.8) {
+    this.wanderTimer--;
+    if (this.wanderTimer <= 0) {
+      this.angle += random(-0.5, 0.5);
+      this.wanderTimer = int(random(30, 90));
     }
-
-    if (count > 0) {
-      steer.div(count);
-      steer.setMag(0.5);
-      this.pos.add(steer);
-    }
-
-    this.pos.x = constrain(this.pos.x, 0, width);
-    this.pos.y = constrain(this.pos.y, 0, height);
+    this.border();
+    this.x += baseSpeed * cos(this.angle);
+    this.y += baseSpeed * sin(this.angle);
+    this.x = constrain(this.x, 0, width);
+    this.y = constrain(this.y, 0, height);
   }
 
   show() {
-    ellipse(this.pos.x, this.pos.y, this.size, this.size / 2);
-    triangle(
-      this.pos.x - this.size / 2, this.pos.y,
-      this.pos.x - this.size, this.pos.y - 5,
-      this.pos.x - this.size, this.pos.y + 5
-    );
+    push();
+    translate(this.x, this.y);
+    rotate(this.angle);
+    ellipse(0, 0, this.size, this.size / 2);
+    triangle(-this.size / 2, 0, -this.size, -5, -this.size, 5);
+    pop();
   }
 }
 
+// Grøn fisk
 class FishTypeA extends Fish {
   constructor(x, y) {
     super(x, y);
@@ -93,19 +110,17 @@ class FishTypeA extends Fish {
     this.speed = 1.5;
   }
 
-  move(foodList, redFoodList, fishList) {
-    this.seek(foodList);
-    this.avoidOtherFish(fishList);
+  move(foodList, redFoodList) {
+    if (foodList.length > 0) this.seek(foodList, this.speed);
+    else this.randomSwim(0.8);
   }
 
-  seek(foodList) {
-    if (foodList.length === 0) return;
-
+  seek(foodList, speed) {
     let closest = null;
     let minDist = Infinity;
 
     for (let food of foodList) {
-      let d = Vector.dist(this.pos, food);
+      let d = dist(this.x, this.y, food.x, food.y);
       if (d < minDist) {
         minDist = d;
         closest = food;
@@ -113,21 +128,29 @@ class FishTypeA extends Fish {
     }
 
     if (closest) {
-      let dir = new Vector(closest.x - this.pos.x, closest.y - this.pos.y).setMag(this.speed);
-      this.pos.add(dir);
-      if (minDist < 10) closest.eaten = true;
-    }
+      let angleToFood = atan2(closest.y - this.y, closest.x - this.x);
+      this.angle = lerpAngle(this.angle, angleToFood, 0.2);
+      this.x += speed * cos(this.angle);
+      this.y += speed * sin(this.angle);
 
-    this.pos.x = constrain(this.pos.x, 0, width);
-    this.pos.y = constrain(this.pos.y, 0, height);
+      if (minDist < 10) closest.eaten = true;
+      this.x = constrain(this.x, 0, width);
+      this.y = constrain(this.y, 0, height);
+    }
   }
 
   show() {
     fill(this.color);
-    super.show();
+     push();
+    translate(this.x, this.y);
+    rotate(this.angle);
+    ellipse(0, 0, this.size, this.size / 1.5);
+    triangle(-this.size / 2, 0, -this.size, -5, -this.size, 5);
+    pop();
   }
 }
 
+// Gul fisk
 class FishTypeB extends Fish {
   constructor(x, y) {
     super(x, y);
@@ -135,19 +158,17 @@ class FishTypeB extends Fish {
     this.speed = 2.8;
   }
 
-  move(foodList, redFoodList, fishList) {
-    this.seek(redFoodList);
-    this.avoidOtherFish(fishList);
+  move(foodList, redFoodList) {
+    if (redFoodList.length > 0) this.seek(redFoodList, this.speed);
+    else this.randomSwim(1.0);
   }
 
-  seek(redFoodList) {
-    if (redFoodList.length === 0) return;
-
+  seek(redFoodList, speed) {
     let closest = null;
     let minDist = Infinity;
 
     for (let food of redFoodList) {
-      let d = Vector.dist(this.pos, food);
+      let d = dist(this.x, this.y, food.x, food.y);
       if (d < minDist) {
         minDist = d;
         closest = food;
@@ -155,13 +176,15 @@ class FishTypeB extends Fish {
     }
 
     if (closest) {
-      let dir = new Vector(closest.x - this.pos.x, closest.y - this.pos.y).setMag(this.speed);
-      this.pos.add(dir);
-      if (minDist < 10) closest.eaten = true;
-    }
+      let angleToFood = atan2(closest.y - this.y, closest.x - this.x);
+      this.angle = lerpAngle(this.angle, angleToFood, 0.2);
+      this.x += speed * cos(this.angle);
+      this.y += speed * sin(this.angle);
 
-    this.pos.x = constrain(this.pos.x, 0, width);
-    this.pos.y = constrain(this.pos.y, 0, height);
+      if (minDist < 10) closest.eaten = true;
+      this.x = constrain(this.x, 0, width);
+      this.y = constrain(this.y, 0, height);
+    }
   }
 
   show() {
@@ -170,6 +193,7 @@ class FishTypeB extends Fish {
   }
 }
 
+// Gul rund mad
 class Food {
   constructor(x, y) {
     this.x = x;
@@ -185,6 +209,7 @@ class Food {
   }
 }
 
+// Rød firkant mad
 class RedFood {
   constructor(x, y) {
     this.x = x;
